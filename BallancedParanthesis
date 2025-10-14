@@ -1,0 +1,35 @@
+/**
+ * Balanced Parentheses Checker
+ * Checks if the given string has balanced brackets (), {}, [].
+ * 
+ * Time Complexity: O(n)
+ * Space Complexity: O(n)
+ */
+
+function isBalanced(str) {
+  const stack = [];
+  const pairs = {
+    ')': '(',
+    '}': '{',
+    ']': '['
+  };
+
+  for (let ch of str) {
+    if (ch === '(' || ch === '{' || ch === '[') {
+      stack.push(ch);
+    } else if (ch === ')' || ch === '}' || ch === ']') {
+      if (stack.pop() !== pairs[ch]) {
+        return false;
+      }
+    }
+  }
+
+  return stack.length === 0;
+}
+
+// --- Example test runs ---
+console.log(isBalanced("()[]{}"));     // true
+console.log(isBalanced("([{}])"));     // true
+console.log(isBalanced("(]"));         // false
+console.log(isBalanced("((())"));      // false
+console.log(isBalanced("{[()]}"));     // true
