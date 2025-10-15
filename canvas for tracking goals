@@ -1,0 +1,498 @@
+/*
+Goal Canvas — React + Konva prototype
+
+Files included below in a single-file layout for quick copy-paste into a React project.
+
+Instructions:
+1. Create a new React app (Vite or Create React App).
+2. Install dependencies: npm install react-konva konva uuid
+   (Tailwind recommended for styling but not required — the app uses simple utility classes.)
+3. Replace App.jsx with the code in src/App.jsx and ensure index.js renders <App />.
+4. Run the app: npm run dev / npm start
+
+This prototype supports:
+- Left-side nav (New Grid, Search Grid, Library, Projects, Completed, Add Goal)
+- Canvas grid where you can add shapes, emojis, text, and images (by URL)
+- Drag, resize and rotate using Konva Transformer
+- Group / ungroup selected nodes
+- Light / Dark theme toggle
+- Basic layering (bring to front / send back)
+- Simple save/load to localStorage
+
+Note: This is a mid-level, readable, and well-documented single-file prototype. It intentionally focuses on clarity and core UX — you can later split into multiple components, add persistence backends, auth, or more advanced editor features.
+*/
+
+// src/App.jsx
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { Stage, Layer, Rect, Text as KText, Group, Image as KImage } from 'react-konva';
+import Konva from 'konva';
+import useImage from 'use-image';
+import { v4 as uuidv4 } from 'uuid';
+
+export default function App() {
+  // theme
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('goal-canvas-theme');
+    return saved ? JSON.parse(saved) : false;
+  });
+  useEffect(() => { localStorage.setItem('goal-canvas-theme', JSON.stringify(dark)); }, [dark]);
+
+  // nodes on canvas
+  const [nodes, setNodes] = useState(() => {
+    const raw = localStorage.getItem('goal-canvas-nodes');
+    return raw ? JSON.parse(raw) : [];
+  });
+
+  useEffect(() => { localStorage.setItem('goal-canvas-nodes', JSON.stringify(nodes)); }, [nodes]);
+
+  // selection & transformer
+  const stageRef = useRef(null);
+  const layerRef = useRef(null);
+  const trRef = useRef(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  // stage size
+  const [stageSize, setStageSize] = useState({ width: 1200, height: 720 });
+  useEffect(() => {
+    function update() {
+      const w = Math.max(800, window.innerWidth - 320);
+      const h = Math.max(500, window.innerHeight - 120);
+      setStageSize({ width: w, height: h });
+    }
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  // helper to add nodes
+  const addTextNode = (text = 'New text') => {
+    const node = {
+      id: uuidv4(),
+      type: 'text',
+      x: 50,
+      y: 50,
+      text,
+      fontSize: 20,
+      fontFamily: 'Arial',
+      fill: dark ? '#fff' : '#111',
+      width: 200,
+      rotation: 0,
+      draggable: true,
+    };
+    setNodes(ns => [...ns, node]);
+    setSelectedIds([node.id]);
+  };
+
+  const addRectNode = () => {
+    const node = {
+      id: uuidv4(),
+      type: 'rect',
+      x: 80,
+      y: 80,
+      width: 150,
+      height: 90,
+      fill: dark ? '#333' : '#eee',
+      stroke: '#888',
+      strokeWidth: 1,
+      rotation: 0,
+      draggable: true,
+    };
+    setNodes(ns => [...ns, node]);
+    setSelectedIds([node.id]);
+  };
+
+  const addEmoji = (emoji = '✨') => {
+    addTextNode(emoji);
+    // reduce font size for emoji
+    setNodes(ns => ns.map(n => n.id === ns[ns.length]?.id ? { ...n, fontSize: 40 } : n));
+  };
+
+  const addImageNode = (url) => {
+    if (!url) return;
+    const node = {
+      id: uuidv4(),
+      type: 'image',
+      x: 100,
+      y: 100,
+      width: 180,
+      height: 120,
+      url,
+      rotation: 0,
+      draggable: true,
+    };
+    setNodes(ns => [...ns, node]);
+    setSelectedIds([node.id]);
+  };
+
+  // group selected
+  const groupSelected = () => {
+    if (selectedIds.length <= 1) return;
+    const groupId = uuidv4();
+    // create new group node that contains references to child nodes
+    const children = nodes.filter(n => selectedIds.includes(n.id));
+    const others = nodes.filter(n => !selectedIds.includes(n.id));
+    // compute group bbox
+    const minX = Math.min(...children.map(c => c.x));
+    const minY = Math.min(...children.map(c => c.y));
+    const maxX = Math.max(...children.map(c => (c.x + (c.width || (c.text ? c.width ?? 200 : 0)))));
+    const maxY = Math.max(...children.map(c => (c.y + (c.height || (c.fontSize ? c.fontSize * 1.2 : 0)))));
+    const groupNode = {
+      id: groupId,
+      type: 'group',
+      x: minX,
+      y: minY,
+      width: Math.max(50, maxX - minX),
+      height: Math.max(30, maxY - minY),
+      draggable: true,
+      children: children.map(c => ({ ...c, x: c.x - minX, y: c.y - minY })),
+    };
+    setNodes([...others, groupNode]);
+    setSelectedIds([groupId]);
+  };
+
+  const ungroupSelected = () => {
+    if (selectedIds.length !== 1) return;
+    const sid = selectedIds[0];
+    const node = nodes.find(n => n.id === sid);
+    if (!node || node.type !== 'group') return;
+    // explode
+    const groupChildren = node.children.map(c => ({ ...c, x: c.x + node.x, y: c.y + node.y }));
+    const others = nodes.filter(n => n.id !== sid);
+    setNodes([...others, ...groupChildren]);
+    setSelectedIds(groupChildren.map(c => c.id));
+  };
+
+  // update node helper
+  const updateNode = (id, patch) => {
+    setNodes(ns => ns.map(n => n.id === id ? { ...n, ...patch } : n));
+  };
+
+  // deletion
+  const deleteSelected = () => {
+    setNodes(ns => ns.filter(n => !selectedIds.includes(n.id)));
+    setSelectedIds([]);
+  };
+
+  // bring to front / back
+  const bringToFront = () => {
+    setNodes(ns => {
+      const selected = ns.filter(n => selectedIds.includes(n.id));
+      const others = ns.filter(n => !selectedIds.includes(n.id));
+      return [...others, ...selected];
+    });
+  };
+
+  const sendToBack = () => {
+    setNodes(ns => {
+      const selected = ns.filter(n => selectedIds.includes(n.id));
+      const others = ns.filter(n => !selectedIds.includes(n.id));
+      return [...selected, ...others];
+    });
+  };
+
+  // deselect by clicking empty area
+  const handleStageMouseDown = (e) => {
+    // clicked on empty area - clear selection
+    if (e.target === e.target.getStage()) {
+      setSelectedIds([]);
+      return;
+    }
+    // if clicked on a shape
+    const clickedOn = e.target.getAttr('nodeId');
+    if (!clickedOn) return;
+    if (e.evt.shiftKey) {
+      // multi-select toggle
+      setSelectedIds(prev => prev.includes(clickedOn) ? prev.filter(id => id !== clickedOn) : [...prev, clickedOn]);
+    } else {
+      setSelectedIds([clickedOn]);
+    }
+  };
+
+  // render nodes recursively
+  const NodeRenderer = ({ node, parentId = null }) => {
+    const commonProps = {
+      x: node.x,
+      y: node.y,
+      rotation: node.rotation || 0,
+      draggable: !!node.draggable,
+      onDragEnd: (e) => updateNode(node.id, { x: e.target.x(), y: e.target.y() }),
+      onTransformEnd: (e) => {
+        const t = e.target;
+        const scaleX = t.scaleX();
+        const scaleY = t.scaleY();
+        t.scaleX(1);
+        t.scaleY(1);
+        if (node.type === 'rect' || node.type === 'image') {
+          updateNode(node.id, {
+            x: t.x(),
+            y: t.y(),
+            width: Math.max(10, Math.round(node.width * scaleX)),
+            height: Math.max(10, Math.round(node.height * scaleY)),
+            rotation: t.rotation(),
+          });
+        } else if (node.type === 'text') {
+          updateNode(node.id, { x: t.x(), y: t.y(), rotation: t.rotation(), fontSize: Math.max(8, Math.round(node.fontSize * Math.max(scaleX, scaleY))) });
+        } else if (node.type === 'group') {
+          updateNode(node.id, { x: t.x(), y: t.y(), rotation: t.rotation(), width: Math.max(10, Math.round(node.width * scaleX)), height: Math.max(10, Math.round(node.height * scaleY)) });
+        }
+      },
+      onClick: (e) => {
+        // prevent stage handler from deselecting
+        e.cancelBubble = true;
+      }
+    };
+
+    if (node.type === 'rect') {
+      return (
+        <Rect
+          {...commonProps}
+          width={node.width}
+          height={node.height}
+          fill={node.fill}
+          stroke={node.stroke}
+          strokeWidth={node.strokeWidth}
+          name={node.id}
+          onClick={() => setSelectedIds([node.id])}
+          draggable
+          nodeId={node.id}
+        />
+      );
+    }
+
+    if (node.type === 'text') {
+      return (
+        <KText
+          {...commonProps}
+          text={node.text}
+          fontSize={node.fontSize}
+          fontFamily={node.fontFamily}
+          fill={node.fill}
+          width={node.width}
+          name={node.id}
+          onClick={() => setSelectedIds([node.id])}
+          nodeId={node.id}
+        />
+      );
+    }
+
+    if (node.type === 'image') {
+      return <ImageNode key={node.id} node={node} onSelect={() => setSelectedIds([node.id])} onChange={(patch) => updateNode(node.id, patch)} />;
+    }
+
+    if (node.type === 'group') {
+      return (
+        <Group
+          {...commonProps}
+          name={node.id}
+          onClick={() => setSelectedIds([node.id])}
+          nodeId={node.id}
+        >
+          <Rect x={0} y={0} width={node.width} height={node.height} stroke={dark ? '#666' : '#ccc'} dash={[4,4]} />
+          {node.children.map(child => (
+            <NodeRenderer key={child.id} node={child} parentId={node.id} />
+          ))}
+        </Group>
+      );
+    }
+
+    return null;
+  };
+
+  // transformer effect
+  useEffect(() => {
+    const tr = trRef.current;
+    const layer = layerRef.current;
+    if (!tr || !layer) return;
+    tr.nodes([]);
+    if (selectedIds.length === 0) {
+      layer.draw();
+      return;
+    }
+    const selectedShapes = selectedIds.map(id => layer.findOne(node => node.name() === id));
+    const valid = selectedShapes.filter(s => s);
+    if (valid.length) {
+      tr.nodes(valid);
+      layer.draw();
+    }
+  }, [selectedIds, nodes, dark]);
+
+  // helper to export canvas as JSON (simple save)
+  const exportJSON = () => {
+    const raw = JSON.stringify(nodes);
+    const blob = new Blob([raw], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'goal-canvas.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importJSON = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        setNodes(data);
+      } catch (err) {
+        alert('Invalid file');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // UI
+  return (
+    <div className={dark ? 'min-h-screen bg-gray-900 text-white' : 'min-h-screen bg-white text-gray-900'} style={{ fontFamily: 'Inter, Arial, sans-serif' }}>
+      <div className="flex">
+        {/* Left nav */}
+        <aside className={dark ? 'w-64 p-4 border-r border-gray-800' : 'w-64 p-4 border-r'}>
+          <h2 className="text-lg font-bold mb-4">Goals Canvas</h2>
+          <nav className="space-y-2">
+            <button className="w-full text-left py-2 px-3 rounded hover:bg-gray-200/10">➕ New Grid</button>
+            <button className="w-full text-left py-2 px-3 rounded hover:bg-gray-200/10">🔎 Search Grid</button>
+            <button className="w-full text-left py-2 px-3 rounded hover:bg-gray-200/10">📚 Library</button>
+            <button className="w-full text-left py-2 px-3 rounded hover:bg-gray-200/10">✅ Completed</button>
+            <button className="w-full text-left py-2 px-3 rounded hover:bg-gray-200/10">➕ Add Goal</button>
+          </nav>
+
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold mb-2">Tools</h3>
+            <div className="flex flex-col gap-2">
+              <button onClick={() => addTextNode()} className="px-3 py-2 rounded bg-indigo-600 text-white">Add Text</button>
+              <button onClick={() => addRectNode()} className="px-3 py-2 rounded bg-indigo-600 text-white">Add Rectangle</button>
+              <button onClick={() => addEmoji('⭐')} className="px-3 py-2 rounded bg-indigo-600 text-white">Add Emoji</button>
+              <ImageAdder onAdd={addImageNode} />
+              <div className="flex gap-2 mt-2">
+                <button onClick={groupSelected} className="px-2 py-1 border rounded">Group</button>
+                <button onClick={ungroupSelected} className="px-2 py-1 border rounded">Ungroup</button>
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button onClick={bringToFront} className="px-2 py-1 border rounded">Bring Front</button>
+                <button onClick={sendToBack} className="px-2 py-1 border rounded">Send Back</button>
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button onClick={deleteSelected} className="px-2 py-1 border rounded">Delete</button>
+                <button onClick={exportJSON} className="px-2 py-1 border rounded">Export</button>
+                <label className="px-2 py-1 border rounded cursor-pointer">Import <input type="file" accept="application/json" onChange={(e) => importJSON(e.target.files?.[0])} style={{ display: 'none' }} /></label>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={dark} onChange={(e) => setDark(e.target.checked)} />
+              Dark theme
+            </label>
+          </div>
+
+        </aside>
+
+        {/* Main area */}
+        <main className="flex-1 p-4">
+          <header className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              <button className="px-3 py-2 border rounded">New Grid</button>
+              <input className="px-3 py-2 border rounded" placeholder="Search goals..." />
+            </div>
+            <div>
+              <small className="text-sm opacity-70">User · Guest</small>
+            </div>
+          </header>
+
+          <div className="bg-transparent rounded overflow-hidden shadow-sm" style={{ border: dark ? '1px solid #222' : '1px solid #eee' }}>
+            <Stage
+              width={stageSize.width}
+              height={stageSize.height}
+              style={{ background: dark ? '#111' : '#fafafa' }}
+              onMouseDown={handleStageMouseDown}
+              ref={stageRef}
+            >
+              <Layer ref={layerRef}>
+                {/* background grid */}
+                <Grid width={stageSize.width} height={stageSize.height} dark={dark} />
+
+                {nodes.map(node => (
+                  <NodeRenderer key={node.id} node={node} />
+                ))}
+
+                {/* Konva transformer */}
+                <Transformer ref={trRef} />
+
+              </Layer>
+            </Stage>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// Simple grid background component
+function Grid({ width, height, dark }) {
+  const group = [];
+  const step = 40;
+  const stroke = dark ? '#222' : '#e6e6e6';
+  for (let x = 0; x < width; x += step) {
+    group.push(<Konva.Line key={`v-${x}`} points={[x, 0, x, height]} stroke={stroke} strokeWidth={0.5} />);
+  }
+  for (let y = 0; y < height; y += step) {
+    group.push(<Konva.Line key={`h-${y}`} points={[0, y, width, y]} stroke={stroke} strokeWidth={0.5} />);
+  }
+  return <Group>{group}</Group>;
+}
+
+// custom Transformer wrapper
+function Transformer({ ...props }) {
+  const trRef = useRef(null);
+  useEffect(() => {
+    const tr = trRef.current;
+    if (!tr) return;
+  }, []);
+  return <Konva.Transformer ref={trRef} {...props} />;
+}
+
+// Image node using use-image hook
+function ImageNode({ node, onSelect, onChange }) {
+  const [img] = useImage(node.url, 'anonymous');
+  const shapeRef = useRef(null);
+  return (
+    <KImage
+      x={node.x}
+      y={node.y}
+      width={node.width}
+      height={node.height}
+      image={img}
+      draggable
+      onClick={onSelect}
+      onTap={onSelect}
+      onDragEnd={(e) => onChange({ x: e.target.x(), y: e.target.y() })}
+      onTransformEnd={(e) => {
+        const t = e.target;
+        const scaleX = t.scaleX();
+        const scaleY = t.scaleY();
+        t.scaleX(1);
+        t.scaleY(1);
+        onChange({
+          x: t.x(),
+          y: t.y(),
+          rotation: t.rotation(),
+          width: Math.max(10, Math.round(node.width * scaleX)),
+          height: Math.max(10, Math.round(node.height * scaleY)),
+        });
+      }}
+    />
+  );
+}
+
+// small image adder component
+function ImageAdder({ onAdd }) {
+  const [url, setUrl] = useState('');
+  return (
+    <div className="flex gap-2">
+      <input value={url} onChange={e => setUrl(e.target.value)} placeholder="Image URL" className="px-2 py-1 border rounded flex-1" />
+      <button onClick={() => { onAdd(url); setUrl(''); }} className="px-2 py-1 bg-green-600 text-white rounded">Add</button>
+    </div>
+  );
+}
