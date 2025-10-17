@@ -1,0 +1,120 @@
+import React, { useState, useEffect } from "react";
+
+export default function App() {
+  const [tasks, setTasks] = useState(() => {
+    const saved = localStorage.getItem("tasks");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [text, setText] = useState("");
+  const [dark, setDark] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("tasks", JSON.stringify(tasks));
+  }, [tasks]);
+
+  const addTask = () => {
+    if (!text.trim()) return;
+    const newTask = { id: Date.now(), text, completed: false };
+    setTasks([...tasks, newTask]);
+    setText("");
+  };
+
+  const toggleTask = (id) => {
+    setTasks(
+      tasks.map((t) =>
+        t.id === id ? { ...t, completed: !t.completed } : t
+      )
+    );
+  };
+
+  const deleteTask = (id) => {
+    setTasks(tasks.filter((t) => t.id !== id));
+  };
+
+  const completedCount = tasks.filter((t) => t.completed).length;
+  const progress = tasks.length
+    ? Math.round((completedCount / tasks.length) * 100)
+    : 0;
+
+  return (
+    <div
+      className={`min-h-screen ${
+        dark ? "bg-gray-900 text-white" : "bg-gray-50 text-gray-900"
+      } flex flex-col items-center p-6 transition`}
+    >
+      <header className="flex justify-between items-center w-full max-w-xl mb-6">
+        <h1 className="text-2xl font-bold">🧭 Task Tracker</h1>
+        <label className="flex items-center gap-2 cursor-pointer text-sm">
+          <input
+            type="checkbox"
+            checked={dark}
+            onChange={() => setDark(!dark)}
+          />
+          Dark Mode
+        </label>
+      </header>
+
+      <div className="w-full max-w-xl bg-white/10 p-4 rounded-xl shadow">
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Add a new task..."
+            className="flex-1 px-3 py-2 rounded border focus:outline-none"
+          />
+          <button
+            onClick={addTask}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            Add
+          </button>
+        </div>
+
+        {tasks.length > 0 && (
+          <>
+            <div className="w-full bg-gray-300 rounded-full h-3 mb-4">
+              <div
+                className="bg-green-500 h-3 rounded-full transition-all"
+                style={{ width: `${progress}%` }}
+              ></div>
+            </div>
+            <p className="text-sm mb-4">
+              Progress: {completedCount}/{tasks.length} ({progress}%)
+            </p>
+          </>
+        )}
+
+        <ul className="space-y-2">
+          {tasks.map((task) => (
+            <li
+              key={task.id}
+              className="flex justify-between items-center p-2 border rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={task.completed}
+                  onChange={() => toggleTask(task.id)}
+                />
+                <span
+                  className={
+                    task.completed ? "line-through opacity-60" : ""
+                  }
+                >
+                  {task.text}
+                </span>
+              </label>
+              <button
+                onClick={() => deleteTask(task.id)}
+                className="text-red-500 hover:text-red-700"
+              >
+                ✖
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
