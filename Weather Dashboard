@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🌦️ Weather Dashboard</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+
+    * {
+      box-sizing: border-box;
+      font-family: 'Poppins', sans-serif;
+    }
+
+    body {
+      background: linear-gradient(to bottom right, #89f7fe, #66a6ff);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+    }
+
+    .container {
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 2rem;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      width: 350px;
+      color: white;
+    }
+
+    h1 {
+      margin-bottom: 1rem;
+    }
+
+    .search-box {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+    }
+
+    #cityInput {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 8px 0 0 8px;
+      width: 60%;
+      outline: none;
+    }
+
+    #searchBtn {
+      background: #ffcb05;
+      border: none;
+      border-radius: 0 8px 8px 0;
+      padding: 0.5rem 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    #searchBtn:hover {
+      background: #ffd54f;
+    }
+
+    .weather-card {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 1.5rem;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      display: none;
+    }
+
+    .extra {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 1rem;
+      font-size: 0.9rem;
+    }
+
+    .error {
+      margin-top: 1rem;
+      color: #ff6b6b;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🌤️ Weather Dashboard</h1>
+
+    <div class="search-box">
+      <input type="text" id="cityInput" placeholder="Enter city name..." />
+      <button id="searchBtn">Search</button>
+    </div>
+
+    <div class="weather-card" id="weatherCard">
+      <h2 id="cityName"></h2>
+      <p id="weatherMain"></p>
+      <h3 id="temperature"></h3>
+      <div class="extra">
+        <p id="humidity"></p>
+        <p id="wind"></p>
+      </div>
+    </div>
+
+    <p id="errorMsg" class="error"></p>
+  </div>
+
+  <script>
+    const apiKey = "YOUR_API_KEY_HERE"; // 🔑 Get it from openweathermap.org
+
+    const searchBtn = document.getElementById("searchBtn");
+    const cityInput = document.getElementById("cityInput");
+    const weatherCard = document.getElementById("weatherCard");
+    const cityName = document.getElementById("cityName");
+    const weatherMain = document.getElementById("weatherMain");
+    const temperature = document.getElementById("temperature");
+    const humidity = document.getElementById("humidity");
+    const wind = document.getElementById("wind");
+    const errorMsg = document.getElementById("errorMsg");
+
+    searchBtn.addEventListener("click", getWeather);
+    cityInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") getWeather();
+    });
+
+    async function getWeather() {
+      const city = cityInput.value.trim();
+      if (!city) return;
+
+      try {
+        errorMsg.textContent = "";
+        weatherCard.style.display = "none";
+
+        const res = await fetch(
+          `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${apiKey}&units=metric`
+        );
+
+        if (!res.ok) throw new Error("City not found!");
+
+        const data = await res.json();
+
+        cityName.textContent = data.name + " " + getWeatherEmoji(data.weather[0].main);
+        weatherMain.textContent = data.weather[0].description
+          .split(" ")
+          .map((w) => w[0].toUpperCase() + w.substring(1))
+          .join(" ");
+        temperature.textContent = `${Math.round(data.main.temp)}°C`;
+        humidity.textContent = `💧 Humidity: ${data.main.humidity}%`;
+        wind.textContent = `🌬️ Wind: ${data.wind.speed} m/s`;
+
+        weatherCard.style.display = "block";
+      } catch (err) {
+        errorMsg.textContent = err.message;
+      }
+    }
+
+    function getWeatherEmoji(condition) {
+      switch (condition.toLowerCase()) {
+        case "clouds": return "☁️";
+        case "rain": return "🌧️";
+        case "clear": return "☀️";
+        case "snow": return "❄️";
+        case "thunderstorm": return "⛈️";
+        case "drizzle": return "🌦️";
+        default: return "🌈";
+      }
+    }
+  </script>
+</body>
+</html>
