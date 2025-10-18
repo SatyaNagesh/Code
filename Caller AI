@@ -1,0 +1,402 @@
+-- SQLite schema: creates appointments table
+CREATE TABLE IF NOT EXISTS appointments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    phone TEXT,
+    doctor TEXT NOT NULL,
+    date TEXT NOT NULL,
+    time TEXT NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+//APP.py
+import sqlite3
+from flask import Flask, g, render_template, request, jsonify
+from flask_cors import CORS
+import os
+
+DATABASE = os.path.join(os.path.dirname(__file__), 'appointments.db')
+
+app = Flask(__name__, static_folder='static', template_folder='templates')
+CORS(app)
+
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = sqlite3.connect(DATABASE)
+        db.row_factory = sqlite3.Row
+        g._database = db
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def init_db():
+    with app.app_context():
+        db = get_db()
+        with open('schema.sql', 'r') as f:
+            db.executescript(f.read())
+        db.commit()
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/api/appointments', methods=['GET'])
+def list_appointments():
+    db = get_db()
+    cur = db.execute('SELECT * FROM appointments ORDER BY created_at DESC')
+    rows = cur.fetchall()
+    appts = [dict(r) for r in rows]
+    return jsonify(appts)
+
+@app.route('/api/appointments', methods=['POST'])
+def create_appointment():
+    data = request.get_json() or {}
+    # Basic validation
+    required = ['name', 'doctor', 'date', 'time']
+    for field in required:
+        if not data.get(field):
+            return jsonify({'error': f'{field} is required'}), 400
+
+    name = data.get('name')
+    phone = data.get('phone', '')
+    doctor = data.get('doctor')
+    date = data.get('date')
+    time = data.get('time')
+    notes = data.get('notes', '')
+
+    db = get_db()
+    cur = db.execute('''
+        INSERT INTO appointments (name, phone, doctor, date, time, notes)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (name, phone, doctor, date, time, notes))
+    db.commit()
+    appt_id = cur.lastrowid
+    cur = db.execute('SELECT * FROM appointments WHERE id = ?', (appt_id,))
+    appt = dict(cur.fetchone())
+    return jsonify(appt), 201
+
+@app.route('/api/appointments/<int:appt_id>', methods=['DELETE'])
+def delete_appointment(appt_id):
+    db = get_db()
+    db.execute('DELETE FROM appointments WHERE id = ?', (appt_id,))
+    db.commit()
+    return jsonify({'status': 'deleted'})
+
+if __name__ == '__main__':
+    if not os.path.exists(DATABASE):
+        init_db()
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
+//Template/index.html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Voice Doctor Appointment Scheduler</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Voice-Enabled Doctor Appointment Scheduler</h1>
+
+    <section class="panel">
+      <h2>Book an appointment</h2>
+      <div class="controls">
+        <label>Name
+          <input id="name" placeholder="Your full name" />
+        </label>
+        <label>Phone
+          <input id="phone" placeholder="Optional phone" />
+        </label>
+        <label>Doctor
+          <select id="doctor">
+            <option value="General Physician">General Physician</option>
+            <option value="Dentist">Dentist</option>
+            <option value="Dermatologist">Dermatologist</option>
+            <option value="Pediatrician">Pediatrician</option>
+          </select>
+        </label>
+        <label>Date
+          <input id="date" type="date" />
+        </label>
+        <label>Time
+          <input id="time" type="time" />
+        </label>
+        <label>Notes
+          <textarea id="notes" placeholder="Notes for doctor (or say via voice)"></textarea>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="start-rec-btn">🎙️ Start Voice Input</button>
+        <button id="stop-rec-btn" disabled>⏹ Stop</button>
+        <button id="fill-sample">Fill Sample</button>
+        <button id="book-btn">Book Appointment</button>
+      </div>
+
+      <div id="transcript" class="transcript">Transcript will appear here...</div>
+    </section>
+
+    <section class="panel">
+      <h2>Upcoming Appointments</h2>
+      <div id="appointments"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
+
+
+
+//Static/styles.css
+:root{
+  --bg:#0f1724; --card:#0b1220; --accent:#06b6d4; --muted:#94a3b8; --glass: rgba(255,255,255,0.03);
+}
+*{box-sizing:border-box; font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;}
+body{margin:0; background:linear-gradient(180deg,#071127 0%, #071127 100%); color:#e6eef8; min-height:100vh; padding:24px;}
+.container{max-width:980px; margin:0 auto;}
+h1{font-size:1.6rem; margin-bottom:12px;}
+.panel{background:var(--glass); padding:18px; border-radius:12px; margin-bottom:18px; box-shadow: 0 6px 20px rgba(2,6,23,0.5);}
+.controls{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+.controls label{display:flex; flex-direction:column; font-size:0.9rem;}
+.controls input, .controls select, .controls textarea{padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit;}
+.controls textarea{min-height:70px; grid-column: span 2;}
+.actions{display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;}
+button{background:var(--accent); color:#042028; padding:8px 12px; border-radius:8px; border:none; cursor:pointer;}
+button:disabled{opacity:0.5; cursor:not-allowed;}
+.transcript{margin-top:12px; color:var(--muted); font-size:0.9rem; padding:10px; border-radius:8px; background:rgba(255,255,255,0.02);}
+#appointments{margin-top:8px;}
+.appt{padding:12px; border-radius:8px; background:rgba(255,255,255,0.02); margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;}
+.appt .info{font-size:0.9rem;}
+.appt .actions small{color:var(--muted);}
+.delete-btn{background:transparent; border:1px solid rgba(255,255,255,0.06); color:var(--muted); padding:6px 8px; border-radius:6px; cursor:pointer;}
+
+
+
+
+
+
+
+
+
+
+
+STATIC/app.js
+// Frontend logic: use Web Speech API for recognition and speech synthesis.
+// Works in Chromium/Chrome/Edge and some browsers that support webkitSpeechRecognition.
+
+const startBtn = document.getElementById('start-rec-btn');
+const stopBtn = document.getElementById('stop-rec-btn');
+const bookBtn = document.getElementById('book-btn');
+const fillSampleBtn = document.getElementById('fill-sample');
+const transcriptEl = document.getElementById('transcript');
+const appointmentsEl = document.getElementById('appointments');
+
+let recognition = null;
+let finalTranscript = '';
+
+function supportsSpeechRecognition() {
+  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+if (supportsSpeechRecognition()) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.lang = 'en-IN';
+  recognition.interimResults = true;
+  recognition.continuous = false;
+
+  recognition.onstart = () => {
+    transcriptEl.textContent = "Listening... Speak your appointment details (e.g., 'My name is Ravi. Book appointment with dentist on 2025-10-25 at 15:30').";
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+  };
+
+  recognition.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      if (event.results[i].isFinal) {
+        finalTranscript += event.results[i][0].transcript;
+      } else {
+        interim += event.results[i][0].transcript;
+      }
+    }
+    transcriptEl.textContent = (finalTranscript + ' ' + interim).trim();
+  };
+
+  recognition.onerror = (e) => {
+    transcriptEl.textContent = 'Error: ' + e.error;
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+  };
+
+  recognition.onend = () => {
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    // After stopping, attempt to auto-fill recognized info using a simple parser
+    if (finalTranscript.trim()) {
+      autoFillFromTranscript(finalTranscript);
+      speak("I captured your appointment details. Check the form and press Book.");
+      finalTranscript = '';
+    }
+  };
+} else {
+  startBtn.disabled = true;
+  stopBtn.disabled = true;
+  transcriptEl.textContent = "Speech Recognition not supported in this browser. Use Chrome or Edge.";
+}
+
+startBtn.addEventListener('click', () => {
+  finalTranscript = '';
+  if (recognition) recognition.start();
+});
+
+stopBtn.addEventListener('click', () => {
+  if (recognition) recognition.stop();
+});
+
+fillSampleBtn.addEventListener('click', () => {
+  document.getElementById('name').value = 'Ravi Kumar';
+  document.getElementById('phone').value = '9876543210';
+  document.getElementById('doctor').value = 'Dentist';
+  const d = new Date(); d.setDate(d.getDate() + 3);
+  document.getElementById('date').value = d.toISOString().split('T')[0];
+  document.getElementById('time').value = '15:00';
+  document.getElementById('notes').value = 'Tooth pain, recurring.';
+});
+
+bookBtn.addEventListener('click', async () => {
+  const payload = {
+    name: document.getElementById('name').value.trim(),
+    phone: document.getElementById('phone').value.trim(),
+    doctor: document.getElementById('doctor').value,
+    date: document.getElementById('date').value,
+    time: document.getElementById('time').value,
+    notes: document.getElementById('notes').value.trim()
+  };
+
+  // Basic validation
+  if (!payload.name || !payload.doctor || !payload.date || !payload.time) {
+    speak("Please provide name, doctor, date and time before booking.");
+    return alert('Name, doctor, date and time are required.');
+  }
+
+  try {
+    const res = await fetch('/api/appointments', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to book');
+    }
+    const appt = await res.json();
+    speak(`Appointment booked for ${appt.name} with ${appt.doctor} on ${appt.date} at ${appt.time}`);
+    loadAppointments();
+    // clear form
+    //document.querySelector('form')?.reset();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+});
+
+async function loadAppointments() {
+  try {
+    const res = await fetch('/api/appointments');
+    const list = await res.json();
+    appointmentsEl.innerHTML = '';
+    if (list.length === 0) appointmentsEl.innerHTML = '<div class="muted">No appointments yet</div>';
+    list.forEach(a => {
+      const div = document.createElement('div');
+      div.className = 'appt';
+      div.innerHTML = `
+        <div class="info">
+          <strong>${escapeHtml(a.name)}</strong> — ${escapeHtml(a.doctor)} <br/>
+          ${escapeHtml(a.date)} ${escapeHtml(a.time)} ${a.phone ? ' • ' + escapeHtml(a.phone) : ''}
+          <div style="font-size:0.85rem;color: #94a3b8;">${escapeHtml(a.notes || '')}</div>
+        </div>
+        <div class="actions">
+          <button class="delete-btn" data-id="${a.id}">Delete</button>
+        </div>
+      `;
+      appointmentsEl.appendChild(div);
+    });
+
+    // attach delete
+    document.querySelectorAll('.delete-btn').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Delete this appointment?')) return;
+        const id = btn.dataset.id;
+        await fetch(`/api/appointments/${id}`, {method:'DELETE'});
+        loadAppointments();
+      }
+    });
+  } catch (err) {
+    appointmentsEl.innerHTML = 'Failed to load appointments';
+  }
+}
+
+function autoFillFromTranscript(text) {
+  // Very naive parsing: looks for patterns like "my name is X", "with dentist", "on 2025-10-25 at 14:30"
+  const nameMatch = text.match(/my name is ([a-z\s]+)/i);
+  if (nameMatch) document.getElementById('name').value = capitalize(nameMatch[1].trim());
+
+  const doctorMatch = text.match(/with (dentist|doctor|dermatologist|pediatrician|gp|general physician)/i);
+  if (doctorMatch) {
+    const map = {
+      dentist: 'Dentist',
+      doctor: 'General Physician',
+      gp: 'General Physician',
+      'general physician': 'General Physician',
+      dermatologist: 'Dermatologist',
+      pediatrician: 'Pediatrician'
+    };
+    const key = doctorMatch[1].toLowerCase();
+    document.getElementById('doctor').value = map[key] || map['doctor'];
+  }
+
+  const dateMatch = text.match(/on (\d{4}-\d{2}-\d{2})/); // ISO date
+  if (dateMatch) document.getElementById('date').value = dateMatch[1];
+
+  const timeMatch = text.match(/at (\d{1,2}:\d{2})/);
+  if (timeMatch) document.getElementById('time').value = timeMatch[1];
+
+  const phoneMatch = text.match(/(\d{10})/);
+  if (phoneMatch) document.getElementById('phone').value = phoneMatch[1];
+
+  // Put leftover transcript into notes
+  document.getElementById('notes').value = text;
+}
+
+function capitalize(s){
+  return s.split(' ').map(w => w && (w[0].toUpperCase()+w.slice(1))).join(' ');
+}
+
+function escapeHtml(unsafe) {
+  if (!unsafe) return '';
+  return unsafe.replace(/[&<"'>]/g, function(m) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m];
+  });
+}
+
+// Text-to-speech helper
+function speak(text){
+  if (!window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-IN';
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+
+// On load
+document.addEventListener('DOMContentLoaded', () => {
+  loadAppointments();
+});
