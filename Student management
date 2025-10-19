@@ -1,0 +1,71 @@
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+
+/**
+ * Simple console-based Student Management System.
+ *
+ * Features:
+ * - Add / View / Update / Delete students
+ * - Search by ID or name
+ * - Persist data to a CSV file ("students.csv")
+ *
+ * Compile: javac StudentManagement.java
+ * Run:     java StudentManagement
+ *
+ * Target: Java 8+
+ */
+public class StudentManagement {
+    private static final String DATA_FILE = "students.csv";
+    private static final Scanner scanner = new Scanner(System.in);
+    private final Map<Integer, Student> students = new LinkedHashMap<>();
+    private int nextId = 1;
+
+    public static void main(String[] args) {
+        StudentManagement app = new StudentManagement();
+        app.loadFromFile();
+        app.run();
+    }
+
+    private void run() {
+        boolean running = true;
+        while (running) {
+            printMenu();
+            String choice = scanner.nextLine().trim();
+            switch (choice) {
+                case "1" -> addStudent();
+                case "2" -> viewAllStudents();
+                case "3" -> updateStudent();
+                case "4" -> deleteStudent();
+                case "5" -> searchStudents();
+                case "6" -> saveToFile();
+                case "7" -> { saveToFile(); running = false; System.out.println("Exiting. Data saved."); }
+                default -> System.out.println("Invalid option — try again.");
+            }
+        }
+    }
+
+    private void printMenu() {
+        System.out.println("\n=== Student Management System ===");
+        System.out.println("1. Add student");
+        System.out.println("2. View all students");
+        System.out.println("3. Update student");
+        System.out.println("4. Delete student");
+        System.out.println("5. Search students");
+        System.out.println("6. Save to file");
+        System.out.println("7. Save & Exit");
+        System.out.print("Choose an option: ");
+    }
+
+    private void addStudent() {
+        System.out.println("\n-- Add Student --");
+        System.out.print("Name: ");
+        String name = scanner.nextLine().trim();
+        if (name.isEmpty()) { System.out.println("Name cannot be empty."); return; }
+
+        int age = readInt("Age: ", 15, 100);
+        System.out.print("Major: ");
+        String major = scanner.nextLine().trim();
+        if (major.isEmpty()) major = "Undeclared";
+
+        Student s
