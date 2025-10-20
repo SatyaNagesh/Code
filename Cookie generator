@@ -1,0 +1,23 @@
+import java.util.Random;
+
+public class FortuneCookie {
+    public static void main(String[] args) {
+        String[] fortunes = {
+            "You will find happiness in unexpected places.",
+            "A fresh start will put you on your way.",
+            "An alien of some sort will be appearing to you shortly.",
+            "Help! I'm trapped in a fortune cookie factory!",
+            "Your shoes will make you happy today.",
+            "Do not mistake temptation for opportunity.",
+            "A pleasant surprise is waiting for you.",
+            "Your future self is proud of you.",
+            "Avoid taking unnecessary gambles. Lucky numbers: 0, 0, 0.",
+            "You will soon laugh at something that once made you cry."
+        };
+
+        Random random = new Random();
+        int index = random.nextInt(fortunes.length);
+
+        System.out.println("🥠 Your fortune: " + fortunes[index]);
+    }
+}
