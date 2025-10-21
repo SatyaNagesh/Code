@@ -1,0 +1,32 @@
+// echoServer.js
+// Simple WebSocket Chat Server – EchoSpace Prototype
+
+const WebSocket = require("ws");
+
+// Create a WebSocket server on port 8080
+const wss = new WebSocket.Server({ port: 8080 });
+
+console.log("EchoSpace Chat Server running on ws://localhost:8080");
+
+wss.on("connection", function connection(ws) {
+  console.log("A new user connected!");
+
+  ws.send("Welcome to EchoSpace Chat 👋");
+
+  // When a message is received from a user
+  ws.on("message", function incoming(message) {
+    console.log("Received:", message.toString());
+
+    // Broadcast message to all connected clients
+    wss.clients.forEach(function each(client) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(`User: ${message}`);
+      }
+    });
+  });
+
+  // When a user disconnects
+  ws.on("close", function () {
+    console.log("A user disconnected ❌");
+  });
+});
