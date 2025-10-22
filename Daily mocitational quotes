@@ -1,0 +1,25 @@
+import java.util.Random;
+
+public class MotivationGenerator {
+
+    public static void main(String[] args) {
+        String[] quotes = {
+            "Believe in yourself and all that you are.",
+            "Success is not final; failure is not fatal: It is the courage to continue that counts.",
+            "Don't watch the clock; do what it does. Keep going.",
+            "Your limitation—it’s only your imagination.",
+            "Dream it. Wish it. Do it.",
+            "Push yourself, because no one else is going to do it for you.",
+            "The harder you work for something, the greater you’ll feel when you achieve it.",
+            "Don’t stop when you’re tired. Stop when you’re done.",
+            "Great things never come from comfort zones.",
+            "Wake up with determination. Go to bed with satisfaction."
+        };
+
+        Random random = new Random();
+        int index = random.nextInt(quotes.length);
+
+        System.out.println("💡 Your motivation for today:\n");
+        System.out.println("\"" + quotes[index] + "\"");
+    }
+}
