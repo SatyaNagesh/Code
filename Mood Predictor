@@ -1,0 +1,59 @@
+import java.util.*;
+
+public class MoodPredictor {
+
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        System.out.println("🧠 Mood Predictor v1.0");
+        System.out.print("Tell me how you're feeling today: ");
+
+        String input = sc.nextLine().toLowerCase();
+
+        String mood = predictMood(input);
+        System.out.println("\n🤖 My guess: You seem to be feeling " + mood + " today!");
+    }
+
+    // Simple mood analysis logic
+    private static String predictMood(String text) {
+        String[] happyWords = {"happy", "excited", "great", "good", "joy", "smile", "fun"};
+        String[] sadWords = {"sad", "tired", "bad", "depressed", "bored", "cry"};
+        String[] angryWords = {"angry", "mad", "furious", "irritated", "annoyed"};
+        String[] anxiousWords = {"nervous", "anxious", "worried", "afraid", "scared"};
+
+        int happy = countMatches(text, happyWords);
+        int sad = countMatches(text, sadWords);
+        int angry = countMatches(text, angryWords);
+        int anxious = countMatches(text, anxiousWords);
+
+        // Compare scores
+        Map<String, Integer> moods = new HashMap<>();
+        moods.put("😊 happy", happy);
+        moods.put("😔 sad", sad);
+        moods.put("😡 angry", angry);
+        moods.put("😰 anxious", anxious);
+
+        String bestMood = "neutral";
+        int max = 0;
+
+        for (Map.Entry<String, Integer> entry : moods.entrySet()) {
+            if (entry.getValue() > max) {
+                bestMood = entry.getKey();
+                max = entry.getValue();
+            }
+        }
+
+        if (max == 0) {
+            bestMood = "😐 neutral (I couldn’t quite tell)";
+        }
+
+        return bestMood;
+    }
+
+    private static int countMatches(String text, String[] words) {
+        int count = 0;
+        for (String word : words) {
+            if (text.contains(word)) count++;
+        }
+        return count;
+    }
+}
