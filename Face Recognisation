@@ -1,0 +1,140 @@
+"""
+//python code
+recognize.py
+Simple real-time face recognition using face_recognition + OpenCV.
+
+Features:
+- Loads known faces from ./known_faces/<PersonName>/*.jpg
+- Uses webcam to detect faces, compare encodings and label recognized faces
+- Draws bounding boxes and names; unknown faces can be saved to ./unknown/
+- Press 'q' to quit, 's' to save snapshot of current frame
+
+Requirements:
+ pip install face_recognition opencv-python numpy
+"""
+
+import face_recognition
+import cv2
+import os
+import numpy as np
+from datetime import datetime
+
+# CONFIG
+KNOWN_FACES_DIR = "known_faces"
+TOLERANCE = 0.5          # Lower = stricter. Typical: 0.4-0.6
+FRAME_THICKNESS = 2
+FONT_THICKNESS = 2
+MODEL = "hog"            # "hog" (CPU) or "cnn" (GPU and more accurate if dlib compiled with CUDA)
+
+# Create unknown directory if not exists
+UNKNOWN_DIR = "unknown"
+os.makedirs(UNKNOWN_DIR, exist_ok=True)
+
+print("Loading known faces...")
+
+known_faces_encodings = []
+known_faces_names = []
+
+# Walk through known faces directory
+for name in os.listdir(KNOWN_FACES_DIR):
+    person_dir = os.path.join(KNOWN_FACES_DIR, name)
+    if not os.path.isdir(person_dir):
+        continue
+    for filename in os.listdir(person_dir):
+        filepath = os.path.join(person_dir, filename)
+        # Load image
+        image = face_recognition.load_image_file(filepath)
+        # Get face encodings (list) — may be empty if no face found
+        encodings = face_recognition.face_encodings(image)
+        if len(encodings) == 0:
+            print(f" - WARNING: No faces found in {filepath}")
+            continue
+        # Use the first face found in the image
+        encoding = encodings[0]
+        known_faces_encodings.append(encoding)
+        known_faces_names.append(name)
+        print(f" - Loaded {name}/{filename}")
+
+print("Known faces loaded:", set(known_faces_names))
+
+# Initialize webcam
+video_capture = cv2.VideoCapture(0)
+if not video_capture.isOpened():
+    raise RuntimeError("Could not open webcam. Check that your camera is working.")
+
+print("Starting video stream. Press 'q' to quit, 's' to save a snapshot of the current frame.")
+
+while True:
+    ret, frame = video_capture.read()
+    if not ret:
+        print("Failed to grab frame")
+        break
+
+    # Resize frame for faster processing (optional)
+    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+    # Convert BGR (OpenCV) to RGB (face_recognition)
+    rgb_small_frame = small_frame[:, :, ::-1]
+
+    # Find all face locations and face encodings in the current frame
+    face_locations = face_recognition.face_locations(rgb_small_frame, model=MODEL)
+    face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+
+    face_names = []
+    for face_encoding in face_encodings:
+        # Compare face to known faces
+        distances = face_recognition.face_distance(known_faces_encodings, face_encoding)
+        name = "Unknown"
+
+        if len(distances) > 0:
+            best_match_index = np.argmin(distances)
+            if distances[best_match_index] <= TOLERANCE:
+                name = known_faces_names[best_match_index]
+                confidence = 1 - distances[best_match_index]  # Rough confidence
+            else:
+                confidence = 0.0
+        else:
+            confidence = 0.0
+
+        face_names.append((name, confidence))
+
+    # Draw boxes and labels (scale back face locations to original frame size)
+    for (top, right, bottom, left), (name, confidence) in zip(face_locations, face_names):
+        # Scale back up since we processed a smaller frame
+        top *= 2
+        right *= 2
+        bottom *= 2
+        left *= 2
+
+        # Box color
+        if name == "Unknown":
+            color = (0, 0, 255)  # Red for unknown
+        else:
+            color = (0, 255, 0)  # Green for known
+
+        # Rectangle around face
+        cv2.rectangle(frame, (left, top), (right, bottom), color, FRAME_THICKNESS)
+        # Label with name + confidence
+        label = f"{name}"
+        if name != "Unknown":
+            label += f" ({confidence:.2f})"
+        # Text background
+        text_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, 0.6, FONT_THICKNESS)
+        text_w, text_h = text_size
+        cv2.rectangle(frame, (left, bottom - text_h - 10), (left + text_w + 6, bottom), color, cv2.FILLED)
+        cv2.putText(frame, label, (left + 3, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), FONT_THICKNESS)
+
+    cv2.imshow('Face Recognition', frame)
+
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
+        break
+    elif key == ord('s'):
+        # Save snapshot with timestamp
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(UNKNOWN_DIR, f"snapshot_{ts}.jpg")
+        cv2.imwrite(path, frame)
+        print(f"Snapshot saved to {path}")
+
+# Cleanup
+video_capture.release()
+cv2.destroyAllWindows()
