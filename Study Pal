@@ -1,0 +1,427 @@
+"""
+StudyPal — Focus Timer + Emotion Tracker (Prototype)
+- GUI: Tkinter
+- Webcam emotion/focus heuristics: MediaPipe FaceMesh + OpenCV
+- Voice feedback: pyttsx3
+- Live plot: matplotlib embedded in Tkinter
+
+Author: SatyaNagesh (student prototype)
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox
+import threading
+import time
+import collections
+import random
+
+import cv2
+import mediapipe as mp
+import numpy as np
+import pyttsx3
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.pyplot as plt
+from PIL import Image, ImageTk
+
+# ----------------------------
+# Config & thresholds (tweak if needed)
+# ----------------------------
+POMODORO_MIN = 25        # default pomodoro minutes
+SHORT_BREAK_MIN = 5
+LONG_BREAK_MIN = 15
+
+DISTRACTION_ALERT_SECONDS = 30    # speak a motivational quote after this many consecutive seconds distracted/absent
+PLOT_WINDOW_SECONDS = 300         # show last N seconds in plot (e.g. 5 minutes)
+FRAME_INTERVAL_MS = 200           # how often to grab webcam frame (ms)
+
+# Heuristic thresholds (may need tuning per camera)
+EYE_CLOSED_THRESHOLD = 0.018     # smaller → more likely eyes closed
+MOUTH_OPEN_THRESHOLD = 0.05      # larger → mouth open (yawning / talking)
+SMILE_RATIO_THRESHOLD = 0.045    # ratio of mouth width/face width to detect smile
+
+# ----------------------------
+# Utilities: quotes & voice
+# ----------------------------
+QUOTES = [
+    "Keep going — you’re doing great.",
+    "One step at a time. Focus for the next few minutes.",
+    "Breathe in. Breathe out. Return to the task.",
+    "Small focus bursts win the day. You got this.",
+    "Remember your goal — finish one thing first."
+]
+
+engine = pyttsx3.init()
+def speak(text):
+    """Speak without blocking the GUI (runs in a background thread)."""
+    def _s():
+        try:
+            engine.say(text)
+            engine.runAndWait()
+        except Exception:
+            pass
+    t = threading.Thread(target=_s, daemon=True)
+    t.start()
+
+# ----------------------------
+# Face detection & heuristics
+# ----------------------------
+mp_face = mp.solutions.face_mesh
+face_mesh = mp_face.FaceMesh(static_image_mode=False,
+                             max_num_faces=1,
+                             refine_landmarks=True,
+                             min_detection_confidence=0.5,
+                             min_tracking_confidence=0.5)
+
+mp_drawing = mp.solutions.drawing_utils
+
+def analyze_face_landmarks(landmarks, image_w, image_h):
+    """
+    landmarks: list of normalized landmarks
+    returns: dict with keys: present(bool), eye_ratio(float), mouth_ratio(float),
+             smile_ratio(float)
+    Heuristic approach based on relative distances of key landmarks.
+    NOTE: indices used are from MediaPipe Face Mesh.
+    """
+    # useful landmark indices (MediaPipe face mesh)
+    # left eye top 159, left eye bottom 145
+    # right eye top 386, right eye bottom 374
+    # mouth left 61, mouth right 291, upper lip 13, lower lip 14
+    try:
+        def p(i):
+            lm = landmarks[i]
+            return np.array([lm.x * image_w, lm.y * image_h])
+
+        left_eye_top = p(159)
+        left_eye_bottom = p(145)
+        right_eye_top = p(386)
+        right_eye_bottom = p(374)
+
+        mouth_left = p(61)
+        mouth_right = p(291)
+        upper_lip = p(13)
+        lower_lip = p(14)
+
+        # face bounding box width as normalization
+        xs = [lm.x for lm in landmarks]
+        ys = [lm.y for lm in landmarks]
+        face_w = (max(xs) - min(xs)) * image_w + 1e-6
+        face_h = (max(ys) - min(ys)) * image_h + 1e-6
+
+        # eye vertical opening distances
+        left_eye_open = np.linalg.norm(left_eye_top - left_eye_bottom)
+        right_eye_open = np.linalg.norm(right_eye_top - right_eye_bottom)
+        eye_avg = (left_eye_open + right_eye_open) / 2.0
+
+        # mouth metrics
+        mouth_height = np.linalg.norm(upper_lip - lower_lip)
+        mouth_width = np.linalg.norm(mouth_right - mouth_left)
+
+        # normalized ratios
+        eye_ratio = eye_avg / face_h
+        mouth_ratio = mouth_height / face_h
+        smile_ratio = mouth_width / face_w
+
+        return {
+            "present": True,
+            "eye_ratio": eye_ratio,
+            "mouth_ratio": mouth_ratio,
+            "smile_ratio": smile_ratio
+        }
+    except Exception:
+        return {"present": False}
+
+# ----------------------------
+# Main App Class
+# ----------------------------
+class StudyPalApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("StudyPal — Focus Timer + Emotion Tracker")
+        self.root.geometry("980x640")
+        self.running = False
+
+        # Pomodoro timer variables (seconds)
+        self.pomodoro_duration = POMODORO_MIN * 60
+        self.short_break = SHORT_BREAK_MIN * 60
+        self.long_break = LONG_BREAK_MIN * 60
+        self.remaining = self.pomodoro_duration
+        self.mode = 'pomodoro'   # 'pomodoro', 'short_break', 'long_break'
+        self.timer_job = None
+
+        # Focus tracking buffers & counters
+        self.focus_log = collections.deque(maxlen=1000)  # (timestamp, state) where state: 1 focused, 0 distracted/absent
+        self.session_start = None
+        self.consecutive_distracted = 0
+
+        # Webcam
+        self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW if hasattr(cv2, 'CAP_DSHOW') else 0)
+        self.cam_frame = None
+
+        # Build UI
+        self.build_ui()
+
+        # Matplotlib plot
+        self.init_plot()
+
+        # Start camera UI loop
+        self.update_cam_loop()
+
+    def build_ui(self):
+        # Top controls frame
+        top_frame = ttk.Frame(self.root)
+        top_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=6)
+
+        self.start_btn = ttk.Button(top_frame, text="Start", command=self.start_pause)
+        self.start_btn.pack(side=tk.LEFT, padx=6)
+        ttk.Button(top_frame, text="Reset", command=self.reset_timer).pack(side=tk.LEFT, padx=6)
+
+        ttk.Label(top_frame, text="Pomodoro (min):").pack(side=tk.LEFT, padx=(20,4))
+        self.pom_entry = ttk.Entry(top_frame, width=4)
+        self.pom_entry.insert(0, str(POMODORO_MIN))
+        self.pom_entry.pack(side=tk.LEFT)
+        ttk.Button(top_frame, text="Set", command=self.set_pomodoro).pack(side=tk.LEFT, padx=6)
+
+        ttk.Label(top_frame, text="Mode:").pack(side=tk.LEFT, padx=(20,4))
+        self.mode_label = ttk.Label(top_frame, text="Pomodoro", width=12)
+        self.mode_label.pack(side=tk.LEFT)
+
+        # Middle main frame
+        main = ttk.Frame(self.root)
+        main.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=6)
+
+        # Left: Camera + status
+        left = ttk.Frame(main)
+        left.pack(side=tk.LEFT, fill=tk.Y, padx=(0,8))
+
+        self.cam_label = ttk.Label(left)
+        self.cam_label.pack(padx=4, pady=4)
+
+        self.status_label = ttk.Label(left, text="Status: Idle", font=("Segoe UI", 12))
+        self.status_label.pack(pady=(8,2))
+
+        self.timer_label = ttk.Label(left, text=self.format_time(self.remaining), font=("Helvetica", 32))
+        self.timer_label.pack(pady=8)
+
+        # Controls for audio toggle
+        self.audio_var = tk.BooleanVar(value=True)
+        audio_cb = ttk.Checkbutton(left, text="Voice Alerts", variable=self.audio_var)
+        audio_cb.pack()
+
+        # Right: Plot
+        right = ttk.Frame(main)
+        right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.fig, self.ax = plt.subplots(figsize=(6,3))
+        self.canvas = FigureCanvasTkAgg(self.fig, master=right)
+        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Bottom: quick info
+        bottom = ttk.Frame(self.root)
+        bottom.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=6)
+        ttk.Label(bottom, text="StudyPal — Real-time focus monitoring (webcam). Press 'Start' to begin.").pack(side=tk.LEFT)
+
+    def init_plot(self):
+        self.ax.set_ylim(-0.1, 1.1)
+        self.ax.set_xlim(-PLOT_WINDOW_SECONDS, 0)
+        self.ax.set_xlabel("Seconds (ago)")
+        self.ax.set_yticks([0,1])
+        self.ax.set_yticklabels(["Distracted","Focused"])
+        self.line, = self.ax.plot([], [], '-o', markersize=2)
+        self.fig.tight_layout()
+
+    def set_pomodoro(self):
+        try:
+            val = int(self.pom_entry.get())
+            if val <= 0:
+                raise ValueError
+            self.pomodoro_duration = val * 60
+            self.reset_timer()
+            messagebox.showinfo("Pomodoro Set", f"Pomodoro set to {val} minutes.")
+        except ValueError:
+            messagebox.showerror("Invalid", "Enter a positive integer for minutes.")
+
+    def format_time(self, secs):
+        m = secs // 60
+        s = secs % 60
+        return f"{int(m):02d}:{int(s):02d}"
+
+    def start_pause(self):
+        if not self.running:
+            # start
+            if not self.session_start:
+                self.session_start = time.time()
+            self.running = True
+            self.start_btn.config(text="Pause")
+            self.run_timer()
+        else:
+            # pause
+            self.running = False
+            self.start_btn.config(text="Start")
+            if self.timer_job:
+                self.root.after_cancel(self.timer_job)
+                self.timer_job = None
+
+    def reset_timer(self):
+        self.running = False
+        self.start_btn.config(text="Start")
+        self.mode = 'pomodoro'
+        self.mode_label.config(text="Pomodoro")
+        self.remaining = self.pomodoro_duration
+        self.timer_label.config(text=self.format_time(self.remaining))
+        self.session_start = None
+        self.focus_log.clear()
+        self.consecutive_distracted = 0
+        self.update_plot()
+
+    def run_timer(self):
+        # Called every 1 second when running
+        if not self.running:
+            return
+        if self.remaining <= 0:
+            # pomodoro complete — switch to break
+            if self.mode == 'pomodoro':
+                # after a pomodoro, go to short break
+                self.mode = 'short_break'
+                self.mode_label.config(text="Short Break")
+                self.remaining = self.short_break
+                if self.audio_var.get():
+                    speak("Pomodoro complete. Take a short break.")
+            elif self.mode == 'short_break':
+                self.mode = 'pomodoro'
+                self.mode_label.config(text="Pomodoro")
+                self.remaining = self.pomodoro_duration
+                if self.audio_var.get():
+                    speak("Break over. Back to work.")
+            # continue running
+        else:
+            self.remaining -= 1
+            self.timer_label.config(text=self.format_time(self.remaining))
+
+        # schedule next second
+        self.timer_job = self.root.after(1000, self.run_timer)
+
+    def update_cam_loop(self):
+        # Periodic camera capture and analysis (non-blocking)
+        ret, frame = self.cap.read()
+        status_text = "No camera"
+        focused_state = 0  # default distracted/absent
+
+        if ret:
+            frame = cv2.flip(frame, 1)
+            image_h, image_w = frame.shape[:2]
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = face_mesh.process(rgb)
+
+            if results.multi_face_landmarks:
+                # analyze first face
+                landmarks = results.multi_face_landmarks[0].landmark
+                info = analyze_face_landmarks(landmarks, image_w, image_h)
+                if info.get("present"):
+                    eye_ratio = info["eye_ratio"]
+                    mouth_ratio = info["mouth_ratio"]
+                    smile_ratio = info["smile_ratio"]
+
+                    # Heuristic decisions
+                    if eye_ratio < EYE_CLOSED_THRESHOLD:
+                        status_text = "Sleepy / Eyes closed"
+                        focused_state = 0
+                    elif mouth_ratio > MOUTH_OPEN_THRESHOLD:
+                        status_text = "Talking / Yawning"
+                        focused_state = 0
+                    elif smile_ratio > SMILE_RATIO_THRESHOLD:
+                        status_text = "Smiling (okay)"
+                        focused_state = 1
+                    else:
+                        status_text = "Focused"
+                        focused_state = 1
+
+                    # Draw small overlay on frame
+                    cv2.putText(frame, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.8, (0, 255, 0) if focused_state else (0, 0, 255), 2)
+                else:
+                    status_text = "Face not detected"
+                    focused_state = 0
+            else:
+                status_text = "Face not detected"
+                focused_state = 0
+
+            # convert to Tk image and display
+            img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+            img = Image.fromarray(img)
+            img = img.resize((320, 240))
+            imgtk = ImageTk.PhotoImage(image=img)
+            self.cam_label.imgtk = imgtk
+            self.cam_label.configure(image=imgtk)
+        else:
+            self.cam_label.configure(text="Camera not available")
+
+        # Update status
+        self.status_label.config(text=f"Status: {status_text}")
+
+        # Log focus state with timestamp
+        now = time.time()
+        self.focus_log.append((now, focused_state))
+
+        # update consecutive distracted counter and possibly speak
+        if focused_state == 0 and self.running:
+            self.consecutive_distracted += FRAME_INTERVAL_MS/1000.0
+        else:
+            self.consecutive_distracted = 0
+
+        if self.consecutive_distracted >= DISTRACTION_ALERT_SECONDS and self.running:
+            # speak a motivational quote
+            quote = random.choice(QUOTES)
+            if self.audio_var.get():
+                speak(quote)
+            # reset counter so it doesn't repeat immediately
+            self.consecutive_distracted = 0
+
+        # Update plot and schedule next camera check
+        self.update_plot()
+        self.root.after(FRAME_INTERVAL_MS, self.update_cam_loop)
+
+    def update_plot(self):
+        # Build time-series of last PLOT_WINDOW_SECONDS
+        now = time.time()
+        cutoff = now - PLOT_WINDOW_SECONDS
+        times = []
+        vals = []
+        for t, state in list(self.focus_log):
+            if t >= cutoff:
+                times.append(t)
+                vals.append(state)
+        if not times:
+            # nothing to plot — show empty
+            self.line.set_data([], [])
+            self.ax.set_xlim(-PLOT_WINDOW_SECONDS, 0)
+            self.canvas.draw()
+            return
+
+        # convert timestaps to seconds ago (negative)
+        times_ago = [t - now for t in times]
+        self.line.set_data(times_ago, vals)
+        self.ax.set_xlim(-PLOT_WINDOW_SECONDS, 0)
+        self.ax.set_ylim(-0.1, 1.1)
+        self.ax.figure.canvas.draw_idle()
+        self.canvas.draw()
+
+    def on_close(self):
+        # Clean up resources
+        try:
+            self.cap.release()
+        except Exception:
+            pass
+        try:
+            face_mesh.close()
+        except Exception:
+            pass
+        self.root.destroy()
+
+# ----------------------------
+# Main
+# ----------------------------
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = StudyPalApp(root)
+    root.protocol("WM_DELETE_WINDOW", app.on_close)
+    root.mainloop()
