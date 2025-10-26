@@ -1,0 +1,111 @@
+You can run this on your laptop (needs webcam & mic enabled).
+
+"""
+FocusGuardian – AI-based Productivity and Mood Assistant
+Author: [Satya Nagesh]
+"""
+
+import cv2
+import mediapipe as mp
+import pyttsx3
+import random
+import time
+import requests
+import os
+
+# Initialize components
+mp_face = mp.solutions.face_mesh
+mp_draw = mp.solutions.drawing_utils
+engine = pyttsx3.init()
+face_mesh = mp_face.FaceMesh(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+# Motivational quotes (backup list)
+quotes = [
+    "Stay focused. Every small step counts.",
+    "You are stronger than your distractions.",
+    "Discipline beats motivation every time.",
+    "Remember why you started.",
+    "Progress, not perfection."
+]
+
+def speak(msg):
+    print("🗣️", msg)
+    engine.say(msg)
+    engine.runAndWait()
+
+def get_quote():
+    try:
+        res = requests.get("https://zenquotes.io/api/random")
+        if res.status_code == 200:
+            return res.json()[0]['q'] + " - " + res.json()[0]['a']
+    except:
+        return random.choice(quotes)
+
+def detect_focus(frame):
+    """Rough focus detection based on blink and face direction"""
+    results = face_mesh.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    if not results.multi_face_landmarks:
+        return False  # Face not detected = distraction
+    
+    for face_landmarks in results.multi_face_landmarks:
+        # Get a few key points to check tilt or eye openness
+        nose = face_landmarks.landmark[1]
+        left_eye = face_landmarks.landmark[159]
+        right_eye = face_landmarks.landmark[386]
+        mouth = face_landmarks.landmark[13]
+
+        eye_distance = abs(left_eye.y - right_eye.y)
+        mouth_open = mouth.y - nose.y
+
+        # Simple heuristic: If eyes closed or mouth wide open → tired/distraction
+        if eye_distance < 0.015 or mouth_open > 0.12:
+            return False
+    return True
+
+# Timer variables
+focus_start = time.time()
+distraction_time = 0
+focus_time = 0
+last_status = True
+
+cap = cv2.VideoCapture(0)
+speak("FocusGuardian activated. Let's stay productive!")
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame = cv2.flip(frame, 1)
+    focused = detect_focus(frame)
+
+    if focused:
+        cv2.putText(frame, "FOCUSED ✅", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+        if not last_status:
+            speak("Good, you're back on track!")
+        focus_time += 1
+    else:
+        cv2.putText(frame, "DISTRACTED ❌", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,0,255), 2)
+        distraction_time += 1
+        if distraction_time % 30 == 0:  # every 30s distracted
+            q = get_quote()
+            speak(q)
+
+    last_status = focused
+    cv2.imshow("FocusGuardian AI", frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Wrap up
+cap.release()
+cv2.destroyAllWindows()
+
+total = focus_time + distraction_time
+if total > 0:
+    focus_percent = (focus_time / total) * 100
+else:
+    focus_percent = 0
+
+speak(f"Session complete. You stayed focused for {focus_percent:.2f} percent of the time.")
+print(f"Focus Time: {focus_time}s | Distraction: {distraction_time}s | Focus%: {focus_percent:.2f}")
