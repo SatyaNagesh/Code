@@ -1,0 +1,33 @@
+import openai
+import random
+
+# You’ll need to install openai and set your API key first:
+# pip install openai
+# export OPENAI_API_KEY="your_api_key_here"
+
+openai.api_key = "your_api_key_here"
+
+random_prompts = [
+    "Write a haiku about spaghetti code.",
+    "Explain quantum computing in pirate speak.",
+    "Design a supervillain whose power is debugging legacy systems.",
+    "Make a riddle about recursion.",
+    "Give me a motivational quote for tired programmers."
+]
+
+def auto_prompt_ai():
+    prompt = random.choice(random_prompts)
+    print(f"🤖 Prompting AI with: {prompt}\n")
+
+    response = openai.ChatCompletion.create(
+        model="gpt-5",  # or "gpt-4o-mini" if available
+        messages=[
+            {"role": "system", "content": "You are a creative, funny assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    print("💬 AI says:\n", response.choices[0].message["content"])
+
+if __name__ == "__main__":
+    auto_prompt_ai()
