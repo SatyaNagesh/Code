@@ -1,0 +1,29 @@
+import random
+
+def random_phrase(mode="compliment"):
+    compliments = [
+        "You're as brilliant as a supernova!",
+        "Your code runs faster than light!",
+        "You're the human equivalent of clean code.",
+        "You make debugging look easy!",
+        "Your brain must have infinite RAM."
+    ]
+    
+    insults = [
+        "Your code runs on hope and prayers.",
+        "You're like a semicolon — easily forgotten but oddly crucial.",
+        "You’d fail a Turing test on purpose, wouldn’t you?",
+        "Your logic has more bugs than an anthill.",
+        "You commit like you’re trying to break GitHub."
+    ]
+    
+    if mode == "compliment":
+        return random.choice(compliments)
+    elif mode == "insult":
+        return random.choice(insults)
+    else:
+        return "Invalid mode! Choose 'compliment' or 'insult'."
+
+# Try it!
+print(random_phrase("compliment"))
+print(random_phrase("insult"))
