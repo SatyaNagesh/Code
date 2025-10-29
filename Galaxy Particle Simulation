@@ -1,0 +1,48 @@
+import pygame
+import random
+import math
+
+pygame.init()
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("🌌 Galaxy Particle Simulation")
+
+class Star:
+    def __init__(self):
+        self.x = random.uniform(-1, 1)
+        self.y = random.uniform(-1, 1)
+        self.speed = random.uniform(0.0005, 0.002)
+        self.size = random.randint(1, 3)
+        self.color = (255, random.randint(100, 255), random.randint(100, 255))
+
+    def move(self):
+        angle = math.atan2(self.y, self.x)
+        distance = math.hypot(self.x, self.y)
+        distance += self.speed
+        self.x = math.cos(angle) * distance
+        self.y = math.sin(angle) * distance
+
+    def draw(self):
+        sx = int(self.x * WIDTH / 2 + WIDTH / 2)
+        sy = int(self.y * HEIGHT / 2 + HEIGHT / 2)
+        if 0 < sx < WIDTH and 0 < sy < HEIGHT:
+            pygame.draw.circle(screen, self.color, (sx, sy), self.size)
+
+stars = [Star() for _ in range(400)]
+clock = pygame.time.Clock()
+
+running = True
+while running:
+    screen.fill((10, 10, 30))
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    for star in stars:
+        star.move()
+        star.draw()
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
