@@ -1,0 +1,58 @@
+import pygame
+import math
+
+pygame.init()
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("🧊 3D Rotating Cube")
+
+# Define cube vertices
+points = [
+    [-1, -1, -1], [1, -1, -1],
+    [1,  1, -1], [-1, 1, -1],
+    [-1, -1,  1], [1, -1, 1],
+    [1,  1,  1], [-1, 1, 1]
+]
+
+edges = [
+    (0,1), (1,2), (2,3), (3,0),
+    (4,5), (5,6), (6,7), (7,4),
+    (0,4), (1,5), (2,6), (3,7)
+]
+
+def rotate(x, y, z, angleX, angleY):
+    # Rotation matrices
+    cosX, sinX = math.cos(angleX), math.sin(angleX)
+    cosY, sinY = math.cos(angleY), math.sin(angleY)
+
+    y, z = y * cosX - z * sinX, y * sinX + z * cosX
+    x, z = x * cosY + z * sinY, -x * sinY + z * cosY
+    return x, y, z
+
+clock = pygame.time.Clock()
+angleX, angleY = 0, 0
+running = True
+
+while running:
+    screen.fill((10, 10, 30))
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    projected_points = []
+    for point in points:
+        x, y, z = rotate(*point, angleX, angleY)
+        factor = 300 / (z + 5)
+        x, y = x * factor + WIDTH / 2, y * factor + HEIGHT / 2
+        projected_points.append((x, y))
+
+    for edge in edges:
+        pygame.draw.line(screen, (255, 255, 255), projected_points[edge[0]], projected_points[edge[1]], 2)
+
+    angleX += 0.02
+    angleY += 0.03
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
