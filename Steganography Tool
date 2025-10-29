@@ -1,0 +1,41 @@
+from PIL import Image
+
+def hide_message(image_path, message, output_path):
+    img = Image.open(image_path)
+    encoded = img.copy()
+    width, height = img.size
+    message += "###"  # End marker
+    binary_msg = ''.join(format(ord(i), '08b') for i in message)
+    data_index = 0
+
+    for y in range(height):
+        for x in range(width):
+            pixel = list(img.getpixel((x, y)))
+            for n in range(3):
+                if data_index < len(binary_msg):
+                    pixel[n] = pixel[n] & ~1 | int(binary_msg[data_index])
+                    data_index += 1
+            encoded.putpixel((x, y), tuple(pixel))
+            if data_index >= len(binary_msg):
+                break
+        else:
+            continue
+        break
+    encoded.save(output_path)
+    print("✅ Message hidden successfully!")
+
+def extract_message(image_path):
+    img = Image.open(image_path)
+    binary_data = ""
+    for y in range(img.height):
+        for x in range(img.width):
+            pixel = list(img.getpixel((x, y)))
+            for n in range(3):
+                binary_data += str(pixel[n] & 1)
+    chars = [binary_data[i:i+8] for i in range(0, len(binary_data), 8)]
+    message = ''.join(chr(int(b, 2)) for b in chars)
+    return message.split("###")[0]
+
+# Example usage
+# hide_message("input.png", "Secret message here", "encoded.png")
+# print(extract_message("encoded.png"))
