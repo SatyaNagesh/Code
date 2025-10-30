@@ -1,0 +1,26 @@
+# Install first (run this in terminal if needed):
+# pip install googletrans==4.0.0-rc1
+
+from googletrans import Translator
+
+def translator_app():
+    translator = Translator()
+    print("🌍 Welcome to Python Language Translator!")
+    print("Type 'exit' to quit.\n")
+
+    while True:
+        text = input("Enter text to translate: ")
+        if text.lower() == "exit":
+            print("Goodbye 👋")
+            break
+
+        target_lang = input("Enter target language (e.g., 'en' for English, 'fr' for French, 'hi' for Hindi): ").lower()
+
+        try:
+            translated = translator.translate(text, dest=target_lang)
+            print(f"\n🔤 Translated ({target_lang.upper()}): {translated.text}\n")
+        except Exception as e:
+            print("⚠️ Error: Could not translate. Please check your input or internet connection.\n")
+
+if __name__ == "__main__":
+    translator_app()
