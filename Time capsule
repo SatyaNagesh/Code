@@ -1,0 +1,57 @@
+import json
+import hashlib
+from datetime import datetime
+
+FILE_NAME = "time_capsule.json"
+
+def hash_message(message):
+    return hashlib.sha256(message.encode()).hexdigest()
+
+def create_capsule():
+    message = input("💌 Write your message to the future: ")
+    unlock_date = input("📅 Enter unlock date (YYYY-MM-DD): ")
+    
+    capsule = {
+        "message_hash": hash_message(message),
+        "message": message,
+        "unlock_date": unlock_date
+    }
+    
+    with open(FILE_NAME, "w") as f:
+        json.dump(capsule, f)
+    
+    print(f"\n🗝️ Time capsule sealed until {unlock_date}!\n")
+
+def open_capsule():
+    try:
+        with open(FILE_NAME, "r") as f:
+            capsule = json.load(f)
+        today = datetime.now().date()
+        unlock_date = datetime.strptime(capsule["unlock_date"], "%Y-%m-%d").date()
+        
+        if today >= unlock_date:
+            print("\n🎉 Your Time Capsule is open!")
+            print("💬 Message:", capsule["message"])
+        else:
+            days_left = (unlock_date - today).days
+            print(f"⏳ Too early! Your message unlocks in {days_left} days.")
+    except FileNotFoundError:
+        print("⚠️ No capsule found. Create one first using option 1.")
+
+def main():
+    print("🔮 Time Capsule Writer 🔒")
+    while True:
+        print("\n1️⃣ Create Capsule\n2️⃣ Open Capsule\n3️⃣ Exit")
+        choice = input("Choose an option: ").strip()
+        if choice == "1":
+            create_capsule()
+        elif choice == "2":
+            open_capsule()
+        elif choice == "3":
+            print("👋 Goodbye, future traveler!")
+            break
+        else:
+            print("❌ Invalid option.")
+
+if __name__ == "__main__":
+    main()
