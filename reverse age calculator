@@ -1,0 +1,26 @@
+from datetime import datetime
+
+def reverse_age():
+    print("🕰️ Welcome to the Reverse Age Calculator!")
+    birth_date = input("Enter your birthdate (YYYY-MM-DD): ")
+    birth = datetime.strptime(birth_date, "%Y-%m-%d").date()
+    today = datetime.now().date()
+
+    age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+    reverse = 100 - age  # Assuming lifespan of 100 years
+
+    if reverse < 0:
+        print("🎉 You’ve transcended time! Negative reverse age 😎")
+    else:
+        print(f"🌱 Your reverse age is: {reverse} years old.")
+        if reverse > 80:
+            print("💫 You’re just getting started!")
+        elif reverse > 50:
+            print("🔥 Still full of creative energy!")
+        elif reverse > 20:
+            print("🌸 Young, wise, and balanced!")
+        else:
+            print("🌟 You’re timeless — full of potential!")
+
+if __name__ == "__main__":
+    reverse_age()
